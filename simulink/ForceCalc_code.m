@@ -21,37 +21,54 @@ Torques = zeros(3,1);
 rho_air = 1.225;    % 공기 밀도 [kg/m³]
 rho_He  = 0.164;    % 헬륨 밀도 [kg/m³]
 g       = 9.81;     % 중력 가속도 [m/s²]
-V_env   = 0.35;     % 엔벨로프 체적 [m³]
-m_total = 0.50;     % 총 질량 [kg]
+
+% 기체 형상 / 정적 trim
+body_length   = 2.0;    % [m]
+body_max_diam = 0.58;   % [m]
+a_semi = body_length / 2;
+b_semi = body_max_diam / 2;
+V_env  = (4/3) * pi * a_semi * b_semi^2;
+
+m_neutral   = (rho_air - rho_He) * V_env;
+buoy_margin = 0.003;    % [kg], 약 +3 g 양성부력
+m_total     = m_neutral - buoy_margin;
 
 % 꼬리
 S_tail  = 0.02;     % 꼬리 면적 [m²]
 C_T     = 0.30;     % 추력계수
 r_tail_x = -0.80;   % 꼬리 x위치 [m] (후방)
+tail_freq_min = 0.5;
+tail_freq_max = 3.0;
+tail_amp_max  = 0.70;
+tail_yaw_max  = 0.52;
 
 % 가슴지느러미
 S_pec    = 0.01;    % 면적 [m²]
 CL_alpha = 2*pi;    % 양력 기울기 [1/rad]
 r_pec_y  = 0.25;    % y위치 [m]
 r_pec_x  = 0.10;    % x위치 [m]
+pec_delta_max   = 35*pi/180;
+pec_alpha_stall = 15*pi/180;
+pec_CL_max      = 1.20;
+pec_V_min       = 0.05; % 저속 surrogate용 최소 유속 [m/s]
 
 % 등지느러미 (고정, 수동 감쇠)
 C_damp_yaw  = 0.005;
 C_damp_roll = 0.003;
 
 % 공기 항력
-Cd    = 0.04;
-S_ref = 0.15;       % 기준 면적 [m²]
+Cd    = 0.30;
+S_ref = pi * b_semi^2;   % 정면 단면적 [m²]
 
 % 부력-무게중심 오프셋
-r_CB_CG = [0; 0; 0.05];  % CB가 CG보다 5cm 위
+r_CB_CG = [0; 0; -0.05]; % CB가 CG보다 5cm 위 (NED z-down)
 
 %% ========== 서보 입력 분리 ==========
-tail_freq    = servo_in(1);
-tail_amp     = servo_in(2);
-tail_yaw_cmd = servo_in(3);
-pec_left     = servo_in(4);
-pec_right    = servo_in(5);
+tail_freq    = min(max(servo_in(1), tail_freq_min), tail_freq_max);
+tail_amp     = min(max(servo_in(2), 0.0), tail_amp_max);
+tail_yaw_cmd = min(max(servo_in(3), -tail_yaw_max), tail_yaw_max);
+pec_left     = min(max(servo_in(4), -pec_delta_max), pec_delta_max);
+pec_right    = min(max(servo_in(5), -pec_delta_max), pec_delta_max);
 
 %% ========== 상태 변수 ==========
 phi   = euler_angles(1);
@@ -92,18 +109,23 @@ F_tail = [F_thr * cos(tail_yaw_cmd);    % 전진 (Yaw시 cos로 감소)
 T_tail = [0; 0; F_thr * sin(tail_yaw_cmd) * abs(r_tail_x)];
 
 %% ========== 5. 가슴지느러미 ==========
-V_eff = max(V_mag, 0.1);  % 최소 유효속도 (정지시에도 약간의 효과)
+% 정지 호버에서 양력이 생기지 않도록 전방 유속 기반으로 계산하되,
+% 수치적으로 완전히 0이 되지 않게 작은 surrogate 유속을 둡니다.
+V_pec = max(abs(u), pec_V_min);
+q_pec = 0.5 * rho_air * V_pec^2;
 
-F_pL = 0.5 * rho_air * V_eff^2 * S_pec * CL_alpha * pec_left;
-F_pR = 0.5 * rho_air * V_eff^2 * S_pec * CL_alpha * pec_right;
+alpha_pL = min(max(pec_left,  -pec_alpha_stall), pec_alpha_stall);
+alpha_pR = min(max(pec_right, -pec_alpha_stall), pec_alpha_stall);
+CL_pL = min(max(CL_alpha * alpha_pL, -pec_CL_max), pec_CL_max);
+CL_pR = min(max(CL_alpha * alpha_pR, -pec_CL_max), pec_CL_max);
 
-% 수직 분력 (고도 제어)
-Fz_pec = -(F_pL + F_pR) * 0.5;
+Fz_pec_L = -q_pec * S_pec * CL_pL; % body z-down, 음수는 upward
+Fz_pec_R = -q_pec * S_pec * CL_pR;
+Fz_pec = Fz_pec_L + Fz_pec_R;
 
-% Roll 토크 (좌우 차이)
-T_roll_pec = (F_pL - F_pR) * r_pec_y;
-% Pitch 토크 (공통 성분)
-T_pitch_pec = (F_pL + F_pR) * 0.5 * r_pec_x;
+% 좌: y=-r_pec_y, 우: y=+r_pec_y 로 가정한 모멘트
+T_roll_pec  = r_pec_y * (Fz_pec_R - Fz_pec_L);
+T_pitch_pec = -r_pec_x * Fz_pec;
 
 %% ========== 6. 등지느러미 수동 감쇠 ==========
 T_dorsal = [-C_damp_roll * p;    % Roll 감쇠

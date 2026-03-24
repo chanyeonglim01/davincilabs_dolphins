@@ -9,25 +9,41 @@ env.g       = 9.81;         % 중력 가속도 [m/s²]
 
 %% ========== 기체 파라미터 ==========
 body.length     = 2.0;          % 전체 길이 [m]
-body.max_diam   = 0.5;          % 최대 직경 [m]
-body.V_envelope = 0.35;         % 엔벨로프 체적 [m³]
-body.m_total    = 0.50;         % 총 질량 [kg] (엔벨로프+전자부+구동부)
-body.m_eff      = body.m_total - (env.rho_air - env.rho_He) * body.V_envelope;
-                                % 유효 질량 (부력 상쇄 후) [kg]
-                                % ≈ 0.50 - 0.371 = 0.129 kg
+body.max_diam   = 0.58;         % 최대 직경 [m]
+body.a_semi     = body.length / 2;
+body.b_semi     = body.max_diam / 2;
+body.V_envelope = (4/3) * pi * body.a_semi * body.b_semi^2;
+                                % Prolate spheroid 체적 [m^3]
+                                % 2.0 m x 0.58 m -> 약 0.352 m^3
+
+body.m_neutral  = (env.rho_air - env.rho_He) * body.V_envelope;
+                                % 중성부력 질량 [kg]
+body.buoyancy_margin = 0.003;   % 양성부력 마진 [kg] (약 +3 g)
+body.m_total    = body.m_neutral - body.buoyancy_margin;
+                                % 총 질량 [kg]
+body.m_eff      = body.m_total - body.m_neutral;
+                                % 정적 질량 불균형 [kg]
+                                % < 0 이면 양성부력
+
+body.F_buoy_nom   = body.m_neutral * env.g;
+body.F_weight_nom = body.m_total * env.g;
+body.Fz_trim_nom  = body.F_weight_nom - body.F_buoy_nom;
+                                % NED 기준 정적 Z힘 [N]
+                                % < 0 이면 정지 시 약한 상승
 
 % 관성 모멘트 (타원체 근사)
-body.Jxx = 0.010;   % Roll  관성 [kg·m²]
-body.Jyy = 0.080;   % Pitch 관성 [kg·m²]
-body.Jzz = 0.080;   % Yaw   관성 [kg·m²]
+body.Jxx = (1/5) * body.m_total * (body.b_semi^2 + body.b_semi^2);
+body.Jyy = (1/5) * body.m_total * (body.a_semi^2 + body.b_semi^2);
+body.Jzz = body.Jyy;
 body.J   = diag([body.Jxx, body.Jyy, body.Jzz]);
 
 % 무게중심(CG) - 부력중심(CB) 오프셋
-body.r_CB_CG = [0; 0; 0.05];   % CB가 CG보다 5cm 위 [m] (펜듈럼 안정성)
+body.r_CB_CG = [0; 0; -0.05];  % CB가 CG보다 5cm 위 [m], NED z-down
 
 %% ========== 공기역학 파라미터 ==========
-aero.Cd      = 0.04;        % 형상 항력계수 (돌고래 유선형)
-aero.S_ref   = 0.15;        % 기준 면적 [m²] (최대 단면적)
+aero.Cd      = 0.30;        % 등가 형상 항력계수 (엔벨로프+지느러미 포함)
+aero.S_ref   = pi * body.b_semi^2;
+                            % 기준 면적 [m²] (정면 단면적)
 
 %% ========== 꼬리지느러미 (Caudal Fin) ==========
 tail.S_fin      = 0.020;    % 꼬리 면적 [m²]
@@ -43,7 +59,10 @@ tail.yaw_max    = 0.52;     % 최대 Yaw 편향 [rad] (≈30°)
 pec.S_fin       = 0.010;    % 가슴지느러미 면적 (한쪽) [m²]
 pec.C_L_alpha   = 2*pi;     % 양력 기울기 [1/rad] (평판 이론)
 pec.r_pec       = [0.10; 0.25; -0.05]; % 가슴지느러미 위치 [m]
-pec.delta_max   = 0.785;    % 최대 편향 [rad] (≈45°)
+pec.delta_max   = deg2rad(35);  % 최대 편향 [rad]
+pec.alpha_stall = deg2rad(15);  % 선형영역 종료 [rad]
+pec.C_L_max     = 1.2;          % stall 이후 양력 포화
+pec.V_min       = 0.05;         % 저속 surrogate용 최소 유속 [m/s]
 
 %% ========== 등지느러미 (Dorsal Fin) — 고정 수동 안정판 ==========
 dorsal.S_fin        = 0.015;    % 등지느러미 면적 [m²]
@@ -112,6 +131,8 @@ sim_params.waypoints = [
 ];
 
 fprintf('돌고래 헬륨 드론 파라미터 초기화 완료\n');
-fprintf('  유효 질량 (부력 상쇄 후): %.3f kg\n', body.m_eff);
-fprintf('  부력: %.1f g\n', (env.rho_air - env.rho_He) * body.V_envelope * 1000);
+fprintf('  체적: %.3f m^3\n', body.V_envelope);
+fprintf('  중성부력 질량: %.1f g\n', body.m_neutral * 1000);
 fprintf('  총 질량: %.1f g\n', body.m_total * 1000);
+fprintf('  양성부력 마진: %.1f g\n', body.buoyancy_margin * 1000);
+fprintf('  정적 Z힘 (NED, +down): %.3f N\n', body.Fz_trim_nom);
