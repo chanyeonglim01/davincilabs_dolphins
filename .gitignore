@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# MATLAB/Simulink 캐시
+simulink/slprj/
+simulink/*.slxc
+simulink/*.autosave
+
+# 임시 파일
+*.tmp
+*.bak
