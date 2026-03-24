@@ -9,7 +9,7 @@ env.g       = 9.81;         % 중력 가속도 [m/s²]
 
 %% ========== 기체 파라미터 ==========
 body.length     = 2.0;          % 전체 길이 [m]
-body.max_diam   = 0.58;         % 최대 직경 [m]
+body.max_diam   = 0.50;         % 최대 직경 [m] (0.58→0.50 재설계)
 body.a_semi     = body.length / 2;
 body.b_semi     = body.max_diam / 2;
 body.V_envelope = (4/3) * pi * body.a_semi * body.b_semi^2;
@@ -18,12 +18,12 @@ body.V_envelope = (4/3) * pi * body.a_semi * body.b_semi^2;
 
 body.m_neutral  = (env.rho_air - env.rho_He) * body.V_envelope;
                                 % 중성부력 질량 [kg]
-body.buoyancy_margin = 0.003;   % 양성부력 마진 [kg] (약 +3 g)
+body.buoyancy_margin = -0.001;  % 음성부력 마진 [kg] (약 -1 g, 약간 무거움)
 body.m_total    = body.m_neutral - body.buoyancy_margin;
-                                % 총 질량 [kg]
+                                % 총 질량 [kg] (m_neutral + 0.001)
 body.m_eff      = body.m_total - body.m_neutral;
                                 % 정적 질량 불균형 [kg]
-                                % < 0 이면 양성부력
+                                % > 0 이면 음성부력 (하강)
 
 body.F_buoy_nom   = body.m_neutral * env.g;
 body.F_weight_nom = body.m_total * env.g;

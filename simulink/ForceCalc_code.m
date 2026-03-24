@@ -24,13 +24,13 @@ g       = 9.81;     % 중력 가속도 [m/s²]
 
 % 기체 형상 / 정적 trim
 body_length   = 2.0;    % [m]
-body_max_diam = 0.58;   % [m]
+body_max_diam = 0.50;   % [m] (재설계: 0.58→0.50)
 a_semi = body_length / 2;
 b_semi = body_max_diam / 2;
 V_env  = (4/3) * pi * a_semi * b_semi^2;
 
 m_neutral   = (rho_air - rho_He) * V_env;
-buoy_margin = 0.003;    % [kg], 약 +3 g 양성부력
+buoy_margin = -0.001;   % [kg], 약 -1 g 음성부력 (약간 무거움)
 m_total     = m_neutral - buoy_margin;
 
 % 꼬리
