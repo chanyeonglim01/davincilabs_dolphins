@@ -32,6 +32,8 @@ static volatile uint16_t rx_len = 0;
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
     if (huart->Instance == USART1) {
+        /* Copy DMA buffer before restarting reception to avoid overwrite */
+        memcpy(parse_buf, dma_buf, sizeof(parse_buf));
         rx_len = Size;
         frame_ready = true;
         /* Restart reception for next frame */
@@ -151,11 +153,18 @@ void sbus_rx_init(void)
 void sbus_rx_process(void)
 {
     if (!frame_ready) return;
-    frame_ready = false;
 
+    /* --- Critical section: snapshot ISR-written data --- */
+    __disable_irq();
+    frame_ready = false;
     uint16_t len = rx_len;
-    if (sbus_validate_frame(dma_buf, len, parse_buf)) {
-        sbus_parse_frame(parse_buf, &sbus_data);
+    uint8_t local_buf[SBUS_FRAME_SIZE];
+    memcpy(local_buf, parse_buf, sizeof(local_buf));
+    __enable_irq();
+
+    uint8_t validated[SBUS_FRAME_SIZE];
+    if (sbus_validate_frame(local_buf, len, validated)) {
+        sbus_parse_frame(validated, &sbus_data);
         if (!sbus_data.failsafe && !sbus_data.frame_lost) {
             sbus_data.last_valid_tick = HAL_GetTick();
             sbus_data.new_frame = true;
