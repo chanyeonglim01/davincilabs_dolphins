@@ -285,14 +285,14 @@ add_table(
     ['항목', '값', '산출 근거'],
     [
         ['전체 길이', '약 2.0m', '돌고래 체형 비율 기준'],
-        ['최대 직경', '약 0.5m', '길이:직경 ≈ 4:1'],
-        ['엔벨로프 체적', '약 0.35m³ (350L)', '타원체 근사'],
-        ['총 부력', '약 364g', '350L × 1.04g/L'],
-        ['엔벨로프 무게', '약 80~120g', 'Mylar 20μm 기준'],
-        ['가용 탑재중량', '약 240~280g', '부력 - 엔벨로프 무게'],
+        ['최대 직경', '약 0.50m', 'Fineness Ratio 4:1'],
+        ['엔벨로프 체적', '약 0.262m³ (262L)', 'Prolate spheroid 공식'],
+        ['총 부력', '약 278g', '262L × 1.06g/L'],
+        ['엔벨로프 무게', '약 65~80g', 'Mylar 20μm, 표면적 ~2.5m²'],
+        ['가용 탑재중량', '약 198~213g', '부력 - 엔벨로프 무게'],
         ['전자부+구동부', '약 30~50g', '경량 설계 시'],
         ['배터리', '약 15~30g', '1S LiPo'],
-        ['잔여 여유분', '약 160~235g', '밸러스트/추가장비용'],
+        ['밸러스트/트림', '약 10~15g', 'CG 조절 + 음성부력 -1g'],
     ]
 )
 doc.add_paragraph(
@@ -1136,7 +1136,7 @@ doc.add_paragraph('      ※ 속도가 높을수록 감쇠 효과 증가')
 doc.add_paragraph()
 doc.add_paragraph('  (f) 공기 항력 블록 (Air Drag)')
 doc.add_paragraph('      F_drag = -0.5 × ρ_air × Cd × S_ref × |V| × V')
-doc.add_paragraph('      Cd ≈ 0.04 (돌고래 유선형)')
+doc.add_paragraph('      Cd ≈ 0.30 (엔벨로프+지느러미 등가 항력계수)')
 doc.add_paragraph()
 doc.add_paragraph('  (g) 6-DOF 적분 블록')
 doc.add_paragraph('      Aerospace Blockset의 "6DOF (Euler Angles)" 블록 사용')
@@ -1145,8 +1145,8 @@ doc.add_paragraph()
 doc.add_paragraph('■ MATLAB 파라미터 스크립트 (init_params.m)')
 doc.add_paragraph()
 doc.add_paragraph('  % 돌고래 드론 물리 파라미터')
-doc.add_paragraph('  params.m = 0.50;           % 총 질량 [kg]')
-doc.add_paragraph('  params.V_envelope = 0.35;   % 엔벨로프 체적 [m³]')
+doc.add_paragraph('  params.m = 0.279;          % 총 질량 [kg] (음성부력 -1g)')
+doc.add_paragraph('  params.V_envelope = 0.262;  % 엔벨로프 체적 [m³]')
 doc.add_paragraph('  params.rho_air = 1.225;     % 공기 밀도 [kg/m³]')
 doc.add_paragraph('  params.rho_He = 0.164;      % 헬륨 밀도 [kg/m³]')
 doc.add_paragraph('  params.g = 9.81;            % 중력 가속도 [m/s²]')
@@ -1310,6 +1310,24 @@ doc.add_paragraph('  • Simulink Coder / Embedded Coder로 자세 제어기 C �
 doc.add_paragraph('  • ESP32 Arduino 프레임워크에 통합')
 doc.add_paragraph('  • 또는 확정된 PID 게인을 C++ 코드에 수동 포팅')
 doc.add_paragraph()
+doc.add_paragraph('■ 확정된 자세 제어기 게인 (Simulink 검증 완료)')
+add_table(
+    ['축', 'Outer P', 'Inner P', 'Inner I', 'Inner D', '비고'],
+    [
+        ['Roll (p)', '1.4', '0.30', '0.01', '0.10', 'Roll 1~3deg가 물리적 한계'],
+        ['Pitch (q)', '0.25', '0.20', '0.00', '0.02', '꼬리 추진 커플링으로 ±2deg 진동(감쇠)'],
+        ['Yaw (r)', '1.0', '0.20', '0.02', '0.03', 'Yaw가 주 조향축'],
+    ]
+)
+doc.add_paragraph('■ RC 모드 검증 결과')
+doc.add_paragraph('  • Manual Direct: RC 스틱 → 서보 직접 제어 (PID 우회)')
+doc.add_paragraph('  • Stabilized: RC 스틱 → 자세 PID 보조')
+doc.add_paragraph('  • Mode Switch: CH5 >= 0.5 → Stabilized, 아니면 Manual')
+doc.add_paragraph('  • Deadband ±0.05, RC_Valid failsafe, Servo dynamics 포함')
+doc.add_paragraph('  • 부력 설정: 음성부력 -1g (fail-safe 자연 착륙)')
+doc.add_paragraph('  • Roll 물리적 한계: 1~3deg (CB-CG 펜듈럼 복원 > 지느러미 토크)')
+doc.add_paragraph('  • 조종 방식: Yaw(꼬리)로 방향전환, Roll은 미세 보조')
+doc.add_paragraph()
 doc.add_paragraph('■ 필요 MATLAB 툴박스')
 add_table(
     ['툴박스', '용도', '필수 여부'],
@@ -1414,11 +1432,11 @@ add_table(
     ['항목', '사양', '비고'],
     [
         ['전체 길이', '약 2.0m', '돌고래 비율'],
-        ['최대 직경', '약 0.5m', 'Fineness Ratio 4:1'],
-        ['엔벨로프 체적', '약 350L (0.35m³)', '타원체 근사'],
-        ['총 부력', '약 364g', ''],
-        ['총 중량 (기체)', '약 150~200g', '엔벨로프 + 전자부 + 구동부'],
-        ['탑재 여유분', '약 160~210g', 'LED, 밸러스트 등'],
+        ['최대 직경', '약 0.50m', 'Fineness Ratio 4:1'],
+        ['엔벨로프 체적', '약 262L (0.262m³)', 'Prolate spheroid'],
+        ['총 부력', '약 278g', ''],
+        ['총 중량 (기체)', '약 279g', '부력+1g 음성부력'],
+        ['부력 설정', '음성부력 -1g', 'fail-safe 자연 착륙'],
         ['최대 속도', '약 0.5 m/s', '실내 안전 속도'],
         ['비행 시간', '약 3~6시간', '구성에 따라'],
         ['위치 정밀도', '±5cm 이내', '외부 트래킹 기준'],
