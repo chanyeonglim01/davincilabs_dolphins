@@ -16,6 +16,8 @@ typedef struct {
     float tail_horz;   /* tail horizontal servo [-1..+1] */
     float pec_left;    /* pectoral left  [-1..+1] */
     float pec_right;   /* pectoral right [-1..+1] */
+    float tail_freq;   /* tail oscillation frequency [0..3] Hz */
+    float tail_amp;    /* tail oscillation amplitude (rad)     */
 } mixer_output_t;
 
 /**

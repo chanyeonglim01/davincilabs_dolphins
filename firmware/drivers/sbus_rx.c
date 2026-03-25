@@ -2,7 +2,7 @@
  * @file sbus_rx.c
  * @brief FrSky XM+ SBUS receiver driver implementation
  *
- * Uses USART1 with DMA in circular mode.
+ * Uses USART1 with DMA + IDLE interrupt for frame synchronization.
  * STM32G431KB USART1 supports hardware RX inversion (RXINV).
  */
 #include "sbus_rx.h"
@@ -14,49 +14,49 @@
 static UART_HandleTypeDef huart_sbus;
 static DMA_HandleTypeDef  hdma_sbus_rx;
 
-/* Double-buffer: DMA writes into dma_buf, we parse from parse_buf */
-static uint8_t dma_buf[SBUS_FRAME_SIZE * 2];
+/* DMA receive buffer: sized for one full SBUS frame */
+static uint8_t dma_buf[SBUS_FRAME_SIZE];
 static uint8_t parse_buf[SBUS_FRAME_SIZE];
 
 static sbus_data_t sbus_data;
 static volatile bool frame_ready = false;
+static volatile uint16_t rx_len = 0;
 
-/* ---- DMA / USART callbacks --------------------------------------------- */
+/* ---- UART IDLE + DMA callback ------------------------------------------ */
 
 /**
- * Called by HAL when DMA transfer completes (full buffer) or half-complete.
- * We scan the DMA buffer for a valid SBUS frame.
+ * Called by HAL when UART IDLE line detected or DMA transfer completes.
+ * HAL_UARTEx_ReceiveToIdle_DMA triggers this on IDLE, giving us
+ * precise frame boundary detection.
  */
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
     if (huart->Instance == USART1) {
+        rx_len = Size;
         frame_ready = true;
-    }
-}
-
-void HAL_UART_RxHalfCpltCallback(UART_HandleTypeDef *huart)
-{
-    if (huart->Instance == USART1) {
-        frame_ready = true;
+        /* Restart reception for next frame */
+        HAL_UARTEx_ReceiveToIdle_DMA(&huart_sbus, dma_buf, sizeof(dma_buf));
+        /* Disable half-transfer interrupt (not needed) */
+        __HAL_DMA_DISABLE_IT(huart->hdmarx, DMA_IT_HT);
     }
 }
 
 /* ---- Frame scanning ---------------------------------------------------- */
 
 /**
- * Scan the DMA circular buffer for a valid SBUS frame
- * Returns true if a frame starting with 0x0F and ending with 0x00 is found
+ * Validate a received buffer as a complete SBUS frame.
+ * Checks: exact length, header byte 0x0F, footer byte 0x00.
+ * Returns true if valid frame copied to out.
  */
-static bool sbus_find_frame(const uint8_t *buf, uint16_t len, uint8_t *out)
+static bool sbus_validate_frame(const uint8_t *buf, uint16_t len, uint8_t *out)
 {
-    for (uint16_t i = 0; i + SBUS_FRAME_SIZE <= len; i++) {
-        if (buf[i] == SBUS_HEADER &&
-            buf[i + SBUS_FRAME_SIZE - 1] == SBUS_FOOTER) {
-            memcpy(out, &buf[i], SBUS_FRAME_SIZE);
-            return true;
-        }
-    }
-    return false;
+    /* Must be exactly 25 bytes with correct header */
+    if (len != SBUS_FRAME_SIZE) return false;
+    if (buf[0] != SBUS_HEADER) return false;
+    if (buf[SBUS_FRAME_SIZE - 1] != SBUS_FOOTER) return false;
+
+    memcpy(out, buf, SBUS_FRAME_SIZE);
+    return true;
 }
 
 /**
@@ -130,7 +130,7 @@ void sbus_rx_init(void)
     hdma_sbus_rx.Init.MemInc              = DMA_MINC_ENABLE;
     hdma_sbus_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
     hdma_sbus_rx.Init.MemDataAlignment    = DMA_MDATAALIGN_BYTE;
-    hdma_sbus_rx.Init.Mode                = DMA_CIRCULAR;
+    hdma_sbus_rx.Init.Mode                = DMA_NORMAL;
     hdma_sbus_rx.Init.Priority            = DMA_PRIORITY_HIGH;
     HAL_DMA_Init(&hdma_sbus_rx);
 
@@ -142,8 +142,10 @@ void sbus_rx_init(void)
     HAL_NVIC_SetPriority(USART1_IRQn, 1, 1);
     HAL_NVIC_EnableIRQ(USART1_IRQn);
 
-    /* Start DMA circular reception */
-    HAL_UART_Receive_DMA(&huart_sbus, dma_buf, sizeof(dma_buf));
+    /* Start IDLE-interrupt based DMA reception */
+    HAL_UARTEx_ReceiveToIdle_DMA(&huart_sbus, dma_buf, sizeof(dma_buf));
+    /* Disable half-transfer interrupt */
+    __HAL_DMA_DISABLE_IT(&hdma_sbus_rx, DMA_IT_HT);
 }
 
 void sbus_rx_process(void)
@@ -151,7 +153,8 @@ void sbus_rx_process(void)
     if (!frame_ready) return;
     frame_ready = false;
 
-    if (sbus_find_frame(dma_buf, sizeof(dma_buf), parse_buf)) {
+    uint16_t len = rx_len;
+    if (sbus_validate_frame(dma_buf, len, parse_buf)) {
         sbus_parse_frame(parse_buf, &sbus_data);
         if (!sbus_data.failsafe && !sbus_data.frame_lost) {
             sbus_data.last_valid_tick = HAL_GetTick();

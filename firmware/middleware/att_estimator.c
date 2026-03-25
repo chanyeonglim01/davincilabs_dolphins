@@ -162,7 +162,12 @@ integrate:
     /* Convert to Euler angles */
     attitude.roll  = atan2f(2.0f * (q0 * q1 + q2 * q3),
                             1.0f - 2.0f * (q1 * q1 + q2 * q2));
-    attitude.pitch = asinf(2.0f * (q0 * q2 - q3 * q1));
+    {
+        float sin_pitch = 2.0f * (q0 * q2 - q3 * q1);
+        if (sin_pitch >  1.0f) sin_pitch =  1.0f;
+        if (sin_pitch < -1.0f) sin_pitch = -1.0f;
+        attitude.pitch = asinf(sin_pitch);
+    }
     attitude.yaw   = atan2f(2.0f * (q0 * q3 + q1 * q2),
                             1.0f - 2.0f * (q2 * q2 + q3 * q3));
 
@@ -233,7 +238,12 @@ integrate_imu:
 
     attitude.roll  = atan2f(2.0f * (q0 * q1 + q2 * q3),
                             1.0f - 2.0f * (q1 * q1 + q2 * q2));
-    attitude.pitch = asinf(2.0f * (q0 * q2 - q3 * q1));
+    {
+        float sin_pitch = 2.0f * (q0 * q2 - q3 * q1);
+        if (sin_pitch >  1.0f) sin_pitch =  1.0f;
+        if (sin_pitch < -1.0f) sin_pitch = -1.0f;
+        attitude.pitch = asinf(sin_pitch);
+    }
     attitude.yaw   = atan2f(2.0f * (q0 * q3 + q1 * q2),
                             1.0f - 2.0f * (q2 * q2 + q3 * q3));
     if (attitude.yaw < 0.0f) attitude.yaw += 2.0f * (float)M_PI;

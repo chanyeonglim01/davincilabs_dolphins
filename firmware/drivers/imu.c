@@ -39,6 +39,7 @@
 #define AK_HXL              0x11
 
 #define ICM20948_WHO_AM_I_VAL  0xEA
+#define AK09916_WHO_AM_I_VAL   0x09
 
 /* Scale factors */
 #define ACCEL_SCALE_4G      (4.0f * 9.80665f / 32768.0f)   /* m/s^2 per LSB */
@@ -96,7 +97,7 @@ static bool imu_i2c_init(void)
 
 /* ---- Setup AK09916 magnetometer via I2C master ------------------------- */
 
-static void imu_setup_mag(void)
+static bool imu_setup_mag(void)
 {
     /* Bank 3: I2C master config */
     imu_select_bank(3);
@@ -104,7 +105,28 @@ static void imu_setup_mag(void)
     /* I2C master clock = 400kHz */
     imu_write_reg(REG_I2C_MST_CTRL, 0x07);
 
-    /* Write to AK09916 CNTL2: continuous mode 4 (100Hz) */
+    /* First, read AK09916 WHO_AM_I (WIA2 = 0x01) to verify presence */
+    imu_write_reg(REG_I2C_SLV0_ADDR, AK09916_ADDR | 0x80); /* read */
+    imu_write_reg(REG_I2C_SLV0_REG,  AK_WIA2);
+    imu_write_reg(REG_I2C_SLV0_CTRL, 0x81); /* enable, 1 byte */
+
+    imu_select_bank(0);
+
+    /* Enable I2C master temporarily to perform read */
+    uint8_t user_ctrl;
+    imu_read_regs(REG_USER_CTRL, &user_ctrl, 1);
+    user_ctrl |= 0x20; /* I2C_MST_EN */
+    imu_write_reg(REG_USER_CTRL, user_ctrl);
+
+    HAL_Delay(10);
+
+    /* Read WHO_AM_I result from EXT_SLV_SENS_DATA_00 */
+    uint8_t mag_wia = 0;
+    imu_read_regs(REG_EXT_SLV_SENS_DATA_00, &mag_wia, 1);
+    if (mag_wia != AK09916_WHO_AM_I_VAL) return false;
+
+    /* Bank 3: Write to AK09916 CNTL2: continuous mode 4 (100Hz) */
+    imu_select_bank(3);
     imu_write_reg(REG_I2C_SLV0_ADDR, AK09916_ADDR);
     imu_write_reg(REG_I2C_SLV0_REG,  AK_CNTL2);
     uint8_t cntl2_val = 0x08; /* continuous mode 4 = 100Hz */
@@ -113,18 +135,14 @@ static void imu_setup_mag(void)
 
     HAL_Delay(10);
 
-    /* Set SLV0 to read 8 bytes from AK09916 HXL (mag data + ST2) */
+    /* Set SLV0 to read ST1 + 8 bytes from AK09916 (ST1 + HXL..HZH + ST2)
+     * Reading ST1 first allows data-ready check before using mag data */
     imu_write_reg(REG_I2C_SLV0_ADDR, AK09916_ADDR | 0x80); /* read */
-    imu_write_reg(REG_I2C_SLV0_REG,  AK_HXL);
-    imu_write_reg(REG_I2C_SLV0_CTRL, 0x88); /* enable, 8 bytes */
+    imu_write_reg(REG_I2C_SLV0_REG,  AK_ST1);
+    imu_write_reg(REG_I2C_SLV0_CTRL, 0x89); /* enable, 9 bytes (ST1+6mag+ST2) */
 
     imu_select_bank(0);
-
-    /* Enable I2C master */
-    uint8_t user_ctrl;
-    imu_read_regs(REG_USER_CTRL, &user_ctrl, 1);
-    user_ctrl |= 0x20; /* I2C_MST_EN */
-    imu_write_reg(REG_USER_CTRL, user_ctrl);
+    return true;
 }
 
 /* ---- Public API -------------------------------------------------------- */
@@ -159,8 +177,8 @@ bool imu_init(void)
     /* Accel config = +-4g, DLPF 50Hz */
     imu_write_reg(REG_ACCEL_CONFIG, 0x0B); /* +-4g, DLPF_CFG=3 */
 
-    /* Setup magnetometer */
-    imu_setup_mag();
+    /* Setup magnetometer (verify AK09916 WHO_AM_I) */
+    if (!imu_setup_mag()) return false;
 
     imu_data.valid = true;
     return true;
@@ -196,16 +214,20 @@ void imu_read(void)
     imu_data.gyro[1] = raw_gy * GYRO_SCALE_500DPS;
     imu_data.gyro[2] = raw_gz * GYRO_SCALE_500DPS;
 
-    /* Read magnetometer from EXT_SLV_SENS_DATA (8 bytes, little-endian) */
-    uint8_t mag_buf[8];
-    if (imu_read_regs(REG_EXT_SLV_SENS_DATA_00, mag_buf, 8) == HAL_OK) {
-        int16_t raw_mx = (int16_t)(mag_buf[1] << 8 | mag_buf[0]);
-        int16_t raw_my = (int16_t)(mag_buf[3] << 8 | mag_buf[2]);
-        int16_t raw_mz = (int16_t)(mag_buf[5] << 8 | mag_buf[4]);
+    /* Read magnetometer from EXT_SLV_SENS_DATA (9 bytes: ST1 + 6 mag + ST2)
+     * ST1 bit0 (DRDY) must be set for valid data */
+    uint8_t mag_buf[9];
+    if (imu_read_regs(REG_EXT_SLV_SENS_DATA_00, mag_buf, 9) == HAL_OK) {
+        if (mag_buf[0] & 0x01) { /* ST1 DRDY bit */
+            int16_t raw_mx = (int16_t)(mag_buf[2] << 8 | mag_buf[1]);
+            int16_t raw_my = (int16_t)(mag_buf[4] << 8 | mag_buf[3]);
+            int16_t raw_mz = (int16_t)(mag_buf[6] << 8 | mag_buf[5]);
 
-        imu_data.mag[0] = raw_mx * MAG_SCALE_UT;
-        imu_data.mag[1] = raw_my * MAG_SCALE_UT;
-        imu_data.mag[2] = raw_mz * MAG_SCALE_UT;
+            imu_data.mag[0] = raw_mx * MAG_SCALE_UT;
+            imu_data.mag[1] = raw_my * MAG_SCALE_UT;
+            imu_data.mag[2] = raw_mz * MAG_SCALE_UT;
+        }
+        /* If DRDY not set, keep previous mag values (stale but better than zero) */
     }
 
     imu_data.timestamp = HAL_GetTick();

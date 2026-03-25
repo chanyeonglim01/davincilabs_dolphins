@@ -75,6 +75,11 @@ int main(void)
  * ------------------------------------------------------------------------ */
 static void SystemClock_Config(void)
 {
+    /* Voltage scaling MUST be set BEFORE configuring PLL to 170 MHz.
+     * SCALE1_BOOST is required for >150 MHz operation on STM32G4. */
+    __HAL_RCC_PWR_CLK_ENABLE();
+    HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1_BOOST);
+
     RCC_OscInitTypeDef osc = {0};
     osc.OscillatorType = RCC_OSCILLATORTYPE_HSI;
     osc.HSIState       = RCC_HSI_ON;
@@ -96,10 +101,6 @@ static void SystemClock_Config(void)
     clk.APB1CLKDivider = RCC_HCLK_DIV1;
     clk.APB2CLKDivider = RCC_HCLK_DIV1;
     HAL_RCC_ClockConfig(&clk, FLASH_LATENCY_4);
-
-    /* Enable PWR clock for voltage scaling */
-    __HAL_RCC_PWR_CLK_ENABLE();
-    HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1_BOOST);
 }
 
 /* ---- TIM6: 100Hz periodic interrupt ------------------------------------

@@ -134,6 +134,7 @@ static rc_command_t   rc_cmd;
 static mixer_output_t mixer_out;
 static uint32_t       loop_count;
 static uint32_t       power_divider; /* read battery every 10 loops = 10Hz */
+static float          tail_phase;    /* accumulated phase for tail oscillation */
 
 /* ---- Public API -------------------------------------------------------- */
 
@@ -158,6 +159,7 @@ void control_task_init(void)
 
     loop_count    = 0;
     power_divider = 0;
+    tail_phase    = 0.0f;
 }
 
 void control_task_run(void)
@@ -192,12 +194,12 @@ void control_task_run(void)
 
     /* ---- 6-7. Mode select + Controller ---- */
     if (!failsafe_is_ok()) {
-        /* FAILSAFE: neutral servos + PID reset */
+        /* FAILSAFE: neutral servos + PID integrator reset only
+         * (do NOT reset AHRS — preserves attitude estimate for recovery) */
         mixer_neutral(&mixer_out);
         cascade_reset(&pid_roll);
         cascade_reset(&pid_pitch);
         cascade_reset(&pid_yaw);
-        att_estimator_reset();
     }
     else if (!rc_cmd.mode_stabilized) {
         /* MANUAL MODE: RC -> mixer directly */
@@ -219,14 +221,17 @@ void control_task_run(void)
         /* RC commands as angle setpoints (scaled to radians) */
         float roll_sp  = rc_cmd.cmd[RC_CH_ROLL]  * 0.5f; /* max +-30 deg ~ 0.5 rad */
         float pitch_sp = rc_cmd.cmd[RC_CH_PITCH] * 0.3f; /* max +-17 deg ~ 0.3 rad */
-        float yaw_sp   = rc_cmd.cmd[RC_CH_YAW]   * 0.5f; /* max +-30 deg ~ 0.5 rad */
 
         float roll_out  = cascade_update(&pid_roll,  roll_sp,  att->roll,
                                          att->roll_rate,  dt);
         float pitch_out = cascade_update(&pid_pitch, pitch_sp, att->pitch,
                                          att->pitch_rate, dt);
-        float yaw_out   = cascade_update(&pid_yaw,   yaw_sp,  att->yaw,
-                                         att->yaw_rate,   dt);
+
+        /* Yaw: rate command mode (stick -> target yaw rate, skip outer P loop)
+         * This is more natural for RC control than angle hold */
+        float yaw_rate_sp = rc_cmd.cmd[RC_CH_YAW] * PARAM_RATE_CMD_MAX;
+        float yaw_rate_err = yaw_rate_sp - att->yaw_rate;
+        float yaw_out = pid_update(&pid_yaw.inner, yaw_rate_err, dt);
 
         mixer_stabilized(pitch_out, roll_out, yaw_out,
                          rc_cmd.cmd[RC_CH_THROTTLE],
@@ -234,7 +239,18 @@ void control_task_run(void)
     }
 
     /* ---- 8-9. Servo PWM output ---- */
-    servo_pwm_set_normalized(SERVO_CH_TAIL_VERT, mixer_out.tail_vert);
+    /* Tail oscillation: sinusoidal waveform for thrust generation
+     * tail_vert servo gets sin(2*pi*freq*t) * amp superimposed on pitch cmd */
+    tail_phase += 2.0f * (float)M_PI * mixer_out.tail_freq * PARAM_DT;
+    if (tail_phase > 2.0f * (float)M_PI) {
+        tail_phase -= 2.0f * (float)M_PI;
+    }
+    float tail_osc = sinf(tail_phase) * mixer_out.tail_amp;
+    /* Normalize amplitude to [-1,1] servo range (0.52 rad / ~0.785 rad full travel) */
+    float tail_osc_norm = tail_osc / (PARAM_SERVO_TRAVEL_DEG * (float)M_PI / 180.0f);
+
+    servo_pwm_set_normalized(SERVO_CH_TAIL_VERT,
+                             mixer_out.tail_vert + tail_osc_norm);
     servo_pwm_set_normalized(SERVO_CH_TAIL_HORZ, mixer_out.tail_horz);
     servo_pwm_set_normalized(SERVO_CH_PEC_LEFT,  mixer_out.pec_left);
     servo_pwm_set_normalized(SERVO_CH_PEC_RIGHT, mixer_out.pec_right);

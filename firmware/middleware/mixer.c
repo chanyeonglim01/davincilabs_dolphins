@@ -34,9 +34,9 @@ void mixer_manual(float pitch, float roll, float yaw, float throttle,
     out->pec_left  = pitch + roll;
     out->pec_right = pitch - roll;
 
-    /* Throttle modulates tail amplitude (not directly a servo angle here,
-     * but can be used for tail oscillation frequency control) */
-    (void)throttle; /* throttle handling done in control_task */
+    /* Throttle -> tail oscillation: freq = throttle * 3 Hz, amp fixed */
+    out->tail_freq = throttle * 3.0f;   /* 0~1 -> 0~3 Hz */
+    out->tail_amp  = 0.52f;             /* ~30 deg fixed amplitude */
 
     mixer_saturate(out);
 }
@@ -50,7 +50,9 @@ void mixer_stabilized(float pitch_cmd, float roll_cmd, float yaw_cmd,
     out->pec_left  = pitch_cmd + roll_cmd;
     out->pec_right = pitch_cmd - roll_cmd;
 
-    (void)throttle;
+    /* Throttle -> tail oscillation: freq = throttle * 3 Hz, amp fixed */
+    out->tail_freq = throttle * 3.0f;
+    out->tail_amp  = 0.52f;
 
     mixer_saturate(out);
 }
@@ -61,6 +63,8 @@ void mixer_neutral(mixer_output_t *out)
     out->tail_horz = 0.0f;
     out->pec_left  = 0.0f;
     out->pec_right = 0.0f;
+    out->tail_freq = 0.0f;
+    out->tail_amp  = 0.0f;
 }
 
 void mixer_saturate(mixer_output_t *out)
