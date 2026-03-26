@@ -40,7 +40,7 @@ r_tail_x = -0.80;   % 꼬리 x위치 [m] (후방)
 tail_freq_min = 0.5;
 tail_freq_max = 3.0;
 tail_amp_max  = 0.70;
-tail_yaw_max  = 0.52;
+tail_yaw_max  = 0.785;   % 45 deg
 
 % 가슴지느러미
 S_pec    = 0.01;    % 면적 [m²]

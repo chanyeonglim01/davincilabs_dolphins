@@ -184,8 +184,17 @@ pec_fb = Kp_h_pec * h_err;
 pec_common = pec_ff + pec_fb;
 pec_common = max(min(pec_common, pec_common_max), -pec_common_max);
 
+%% ========== Bank Turn ==========
+K_bank = 0.10;  % rad/rad
+phi_max = 3 * pi/180;  % 3 deg
+phi_bank = K_bank * psi_err;
+phi_bank = max(min(phi_bank, phi_max), -phi_max);
+if u_meas < 0.7
+    phi_bank = 0;
+end
+
 %% ========== 출력 ==========
-Ref_Att_Auto = [0; 0; psi_ref];
+Ref_Att_Auto = [phi_bank; 0; psi_ref];
 TailFreq_Auto = tail_freq;
 PecCommon_Auto = pec_common;
 TailPitch_Auto = tail_pitch_cmd;
