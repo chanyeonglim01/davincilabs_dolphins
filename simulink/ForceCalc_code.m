@@ -64,11 +64,12 @@ S_ref = pi * b_semi^2;   % 정면 단면적 [m²]
 r_CB_CG = [0; 0; -0.05]; % CB가 CG보다 5cm 위 (NED z-down)
 
 %% ========== 서보 입력 분리 ==========
-tail_freq    = min(max(servo_in(1), tail_freq_min), tail_freq_max);
-tail_amp     = min(max(servo_in(2), 0.0), tail_amp_max);
-tail_yaw_cmd = min(max(servo_in(3), -tail_yaw_max), tail_yaw_max);
-pec_left     = min(max(servo_in(4), -pec_delta_max), pec_delta_max);
-pec_right    = min(max(servo_in(5), -pec_delta_max), pec_delta_max);
+tail_freq      = min(max(servo_in(1), tail_freq_min), tail_freq_max);
+tail_amp       = min(max(servo_in(2), 0.0), tail_amp_max);
+tail_yaw_cmd   = min(max(servo_in(3), -tail_yaw_max), tail_yaw_max);
+pec_left       = min(max(servo_in(4), -pec_delta_max), pec_delta_max);
+pec_right      = min(max(servo_in(5), -pec_delta_max), pec_delta_max);
+tail_pitch_cmd = min(max(servo_in(6), -0.25), 0.25);  % 꼬리 상하 편향 [rad]
 
 %% ========== 상태 변수 ==========
 phi   = euler_angles(1);
@@ -101,12 +102,14 @@ F_grav_b = R * F_grav_e;
 %% ========== 4. 꼬리 추진력 ==========
 F_thr = rho_air * pi^2 * S_tail * tail_amp^2 * tail_freq^2 * C_T;
 
-F_tail = [F_thr * cos(tail_yaw_cmd);    % 전진 (Yaw시 cos로 감소)
-          F_thr * sin(tail_yaw_cmd);    % 횡방향
-          0];
+F_tail = [F_thr * cos(tail_yaw_cmd) * cos(tail_pitch_cmd);  % 전진
+          F_thr * sin(tail_yaw_cmd);                         % 횡방향 (yaw)
+          F_thr * cos(tail_yaw_cmd) * sin(tail_pitch_cmd)];  % 수직 (pitch)
 
-% Yaw 토크 (꼬리 좌우 편향)
-T_tail = [0; 0; F_thr * sin(tail_yaw_cmd) * abs(r_tail_x)];
+% Yaw + Pitch 토크
+T_tail = [0;
+          -F_thr * sin(tail_pitch_cmd) * abs(r_tail_x);  % Pitch 모멘트
+          F_thr * sin(tail_yaw_cmd) * abs(r_tail_x)];    % Yaw 모멘트
 
 %% ========== 5. 가슴지느러미 ==========
 % 정지 호버에서 양력이 생기지 않도록 전방 유속 기반으로 계산하되,

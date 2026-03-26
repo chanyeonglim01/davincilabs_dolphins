@@ -1,4 +1,4 @@
-function [Ref_Att_Auto, TailFreq_Auto, PecCommon_Auto, wp_idx_out] = AutoNav(pos_uwb, euler, speed_mag, clock_t)
+function [Ref_Att_Auto, TailFreq_Auto, PecCommon_Auto, TailPitch_Auto, wp_idx_out] = AutoNav(pos_uwb, euler, speed_mag, clock_t)
 %#codegen
 %% AutoNav: 위치 제어기 (비홀로노믹 돌고래 드론)
 %% 입력:
@@ -10,7 +10,8 @@ function [Ref_Att_Auto, TailFreq_Auto, PecCommon_Auto, wp_idx_out] = AutoNav(pos
 %% 출력:
 %%   Ref_Att_Auto(3x1): [roll_ref, pitch_ref, psi_ref]
 %%   TailFreq_Auto(1x1): 꼬리 주파수 [Hz]
-%%   PecCommon_Auto(1x1): 가슴지느러미 공통 편향 [rad] (고도 제어)
+%%   PecCommon_Auto(1x1): 가슴지느러미 공통 편향 [rad] (고도 보조)
+%%   TailPitch_Auto(1x1): 꼬리 상하 편향 [rad] (고도 주제어)
 %%   wp_idx_out(1x1):    현재 WP 인덱스
 
 %% ========== 파라미터 ==========
@@ -34,20 +35,29 @@ Ki_u = 0.15;
 freq_min = 0.5;
 freq_max = 3.0;
 
-% Altitude (pec common direct)
-Kp_h = 0.05;           % rad/m
-pec_common_max = 0.15;  % rad
+% Altitude — tail pitch (primary)
+Kp_h_tail = 0.15;      % rad/m
+Kd_h_tail = 0.0;       % rad/(m/s) (hdot 불안정하므로 일단 P-only)
+tail_pitch_max = 0.25;  % rad
 rho_air = 1.225;
+S_tail_area = 0.02;
+C_T = 0.30;
+tail_amp_nom = 0.52;
+F_neg_buoy = 0.0005 * 9.81;  % -0.5g
+
+% Altitude — pec common (secondary trim)
+Kp_h_pec = 0.03;       % rad/m
+pec_common_max = 0.10;  % rad (보조 trim만)
 S_pec = 0.01;
 CL_alpha = 2*pi;
-F_neg_buoy = 0.0005 * 9.81;  % 음성부력 0.0005 kg (-0.5g)
 
 %% ========== Persistent ==========
-persistent wp_idx u_integral prev_psi_ref
+persistent wp_idx u_integral prev_psi_ref prev_height
 if isempty(wp_idx)
     wp_idx = 1;
     u_integral = 0;
     prev_psi_ref = 0;
+    prev_height = 1.5;
 end
 
 dt = 0.1;  % 10Hz
@@ -98,23 +108,31 @@ u_integral = max(min(u_integral, 3.0), -1.0);  % anti-windup
 tail_freq = Kp_u * u_err + Ki_u * u_integral;
 tail_freq = max(min(tail_freq, freq_max), freq_min);
 
-%% ========== 4. Altitude (pec common direct) ==========
+%% ========== 4. Altitude ==========
 h_err = h_ref - height;
-u_eff = max(u_meas, 0.65);  % 저속 floor / alt enable threshold
+hdot = (height - prev_height) / dt;
+prev_height = height;
 
-% feedforward: 음성부력 상쇄
-pec_ff = F_neg_buoy / (rho_air * u_eff^2 * S_pec * CL_alpha);
+% 4a. Tail pitch (primary) — feedforward + PD
+F_thr_est = rho_air * pi^2 * S_tail_area * tail_amp_nom^2 * tail_freq^2 * C_T;
+F_thr_est = max(F_thr_est, 0.001);
+tail_pitch_ff = -asin(min(max(F_neg_buoy / F_thr_est, -0.4), 0.4));  % 음수=위(NED)
+tail_pitch_fb = -(Kp_h_tail * h_err - Kd_h_tail * hdot);           % 고도 부족→위
+tail_pitch_cmd = tail_pitch_ff + tail_pitch_fb;
+tail_pitch_cmd = max(min(tail_pitch_cmd, tail_pitch_max), -tail_pitch_max);
 
-% feedback
-pec_fb = Kp_h * h_err;
-
+% 4b. Pec common (secondary trim)
+u_eff = max(u_meas, 0.65);
+pec_ff = F_neg_buoy / (rho_air * u_eff^2 * S_pec * CL_alpha) * 0.5;  % 50% only
+pec_fb = Kp_h_pec * h_err;
 pec_common = pec_ff + pec_fb;
 pec_common = max(min(pec_common, pec_common_max), -pec_common_max);
 
 %% ========== 출력 ==========
-Ref_Att_Auto = [0; 0; psi_ref];  % pitch_ref = 0 (고도는 pec_common으로)
+Ref_Att_Auto = [0; 0; psi_ref];
 TailFreq_Auto = tail_freq;
 PecCommon_Auto = pec_common;
+TailPitch_Auto = tail_pitch_cmd;
 wp_idx_out = wp_idx;
 
 end
