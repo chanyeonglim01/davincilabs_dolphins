@@ -43,7 +43,7 @@ tail_amp_max  = 0.70;
 tail_yaw_max  = 0.785;   % 45 deg
 
 % 가슴지느러미
-S_pec    = 0.01;    % 면적 [m²]
+S_pec    = 0.03;    % 면적 3배 (Roll-to-Turn용)    % 면적 [m²]
 CL_alpha = 2*pi;    % 양력 기울기 [1/rad]
 r_pec_y  = 0.25;    % y위치 [m]
 r_pec_x  = 0.10;    % x위치 [m]
@@ -66,7 +66,7 @@ r_CB_CG = [0; 0; -0.05]; % CB가 CG보다 5cm 위 (NED z-down)
 %% ========== 서보 입력 분리 ==========
 tail_freq      = min(max(servo_in(1), tail_freq_min), tail_freq_max);
 tail_amp       = min(max(servo_in(2), 0.0), tail_amp_max);
-tail_yaw_cmd   = min(max(servo_in(3), -tail_yaw_max), tail_yaw_max);
+tail_yaw_cmd   = 0;  % 꼬리는 위아래만 (돌고래 생체 모사)
 pec_left       = min(max(servo_in(4), -pec_delta_max), pec_delta_max);
 pec_right      = min(max(servo_in(5), -pec_delta_max), pec_delta_max);
 tail_pitch_cmd = min(max(servo_in(6), -0.25), 0.25);  % 꼬리 상하 편향 [rad]
@@ -130,6 +130,14 @@ Fz_pec = Fz_pec_L + Fz_pec_R;
 T_roll_pec  = r_pec_y * (Fz_pec_R - Fz_pec_L);
 T_pitch_pec = -r_pec_x * Fz_pec;
 
+%% 가슴지느러미 차동 yaw moment (돌고래 방향전환)
+% 지느러미 편향 시 y방향 분력 발생 → yaw moment
+% 좌 지느러미 pec_left>0(아래) → Fy_L = +양수 (좌→우 방향)
+% CG 앞(r_pec_x>0)에서 Fy → yaw moment
+Fy_pec_L = q_pec * S_pec * CL_alpha * pec_left * 0.3;  % y방향 분력 (30%)
+Fy_pec_R = -q_pec * S_pec * CL_alpha * pec_right * 0.3;  % 반대 방향
+T_yaw_pec = r_pec_x * (Fy_pec_L + Fy_pec_R);  % 차동 → yaw
+
 %% ========== 6. 등지느러미 수동 감쇠 ==========
 T_dorsal = [-C_damp_roll * p;    % Roll 감쇠
              0;                   % Pitch 무관
@@ -147,7 +155,7 @@ T_rot_damp = -0.001 * omega_b;
 
 %% ========== 합산 ==========
 Forces  = (F_buoy_b + F_grav_b + F_tail + [0; 0; Fz_pec] + F_drag).';
-Torques = (T_buoy + T_tail + [T_roll_pec; T_pitch_pec; 0] + T_dorsal + T_rot_damp).';
+Torques = (T_buoy + T_tail + [T_roll_pec; T_pitch_pec; T_yaw_pec] + T_dorsal + T_rot_damp).';
 
 
 end
