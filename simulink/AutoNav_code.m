@@ -23,13 +23,17 @@ WP = [ 0,  0, -1.5;
 N_wp = 5;
 R_switch = 0.8;      % 코너 통과 허용 반경 확대
 
-% Guidance
-psi_rate_max = 15 * pi/180;  % psi_ref 변화율 제한 [rad/s]
+% Guidance (LOS)
+psi_rate_max = 45 * pi/180;  % psi_ref 변화율 [rad/s] — 물고기라 빠르게 턴
+T_look = 0.6;                % lookahead time [s] — 짧을수록 경로 밀착
+L_look_min = 0.5;            % minimum lookahead [m]
+L_look_max = 1.2;            % maximum lookahead [m]
+K_ct = 2.0;                  % cross-track correction gain — 경로 복귀 강화
 
 % Speed
-u_cruise = 1.2;
-u_corner = 0.9;
-psi_slow_thresh = 25 * pi/180;
+u_cruise = 1.0;       % 순항 약간 낮춤
+u_corner = 0.6;       % 코너 더 감속
+psi_slow_thresh = 15 * pi/180;  % 더 일찍 감속 시작
 Kp_u = 0.8;
 Ki_u = 0.15;
 freq_min = 0.5;
@@ -68,21 +72,71 @@ psi = euler(3);
 height = -z;
 u_meas = speed_mag;  % from position derivative
 
-%% ========== 1. Waypoint Manager ==========
-wp_x = WP(wp_idx,1);  wp_y = WP(wp_idx,2);
-dist = sqrt((x-wp_x)^2 + (y-wp_y)^2);
-
-% along-track 기반: 거리 < R_switch 또는 지나쳤을 때
-if dist < R_switch && wp_idx < N_wp
-    wp_idx = wp_idx + 1;
+%% ========== 1. Waypoint Manager + LOS Segment ==========
+% wp_idx is the active segment start index: WP_A = WP(wp_idx), WP_B = WP(wp_idx+1)
+if wp_idx > N_wp - 1
+    wp_idx = N_wp - 1;
 end
 
-tgt_x = WP(wp_idx,1);  tgt_y = WP(wp_idx,2);  tgt_z = WP(wp_idx,3);
+WP_A = WP(wp_idx, :);
+WP_B = WP(wp_idx + 1, :);
+
+seg_x = WP_B(1) - WP_A(1);
+seg_y = WP_B(2) - WP_A(2);
+seg_len = sqrt(seg_x^2 + seg_y^2);
+if seg_len < 1e-6
+    seg_len = 1e-6;
+end
+t_hat_x = seg_x / seg_len;
+t_hat_y = seg_y / seg_len;
+
+rel_x = x - WP_A(1);
+rel_y = y - WP_A(2);
+s_along = rel_x * t_hat_x + rel_y * t_hat_y;
+e_ct = -rel_x * t_hat_y + rel_y * t_hat_x;  % signed cross-track error
+dist_to_B = sqrt((x - WP_B(1))^2 + (y - WP_B(2))^2);
+
+% along-track progress 기반 waypoint 전환
+if ((s_along >= seg_len - R_switch) || (dist_to_B < R_switch)) && (wp_idx < N_wp - 1)
+    wp_idx = wp_idx + 1;
+    if wp_idx > N_wp - 1
+        wp_idx = N_wp - 1;
+    end
+
+    WP_A = WP(wp_idx, :);
+    WP_B = WP(wp_idx + 1, :);
+
+    seg_x = WP_B(1) - WP_A(1);
+    seg_y = WP_B(2) - WP_A(2);
+    seg_len = sqrt(seg_x^2 + seg_y^2);
+    if seg_len < 1e-6
+        seg_len = 1e-6;
+    end
+    t_hat_x = seg_x / seg_len;
+    t_hat_y = seg_y / seg_len;
+
+    rel_x = x - WP_A(1);
+    rel_y = y - WP_A(2);
+    s_along = rel_x * t_hat_x + rel_y * t_hat_y;
+    e_ct = -rel_x * t_hat_y + rel_y * t_hat_x;
+end
+
+tgt_z = WP_B(3);
 h_ref = -tgt_z;
 
-%% ========== 2. Guidance (heading to WP + rate limit) ==========
-dx = tgt_x - x;  dy = tgt_y - y;
-psi_desired = atan2(dy, dx);
+%% ========== 2. Guidance (LOS line following + rate limit) ==========
+look_dist = max(min(T_look * max(u_meas, 0.4), L_look_max), L_look_min);
+s_proj = max(min(s_along, seg_len), 0.0);
+look_s = min(s_proj + look_dist, seg_len);
+
+% LOS lookahead point on active segment
+look_x = WP_A(1) + look_s * t_hat_x;
+look_y = WP_A(2) + look_s * t_hat_y;
+
+% path heading + cross-track correction
+psi_path = atan2(seg_y, seg_x);
+psi_ct = atan2(-K_ct * e_ct, look_dist);
+psi_desired = atan2(sin(psi_path + psi_ct), cos(psi_path + psi_ct));
 
 % psi_ref rate limiting
 psi_err_raw = atan2(sin(psi_desired - prev_psi_ref), cos(psi_desired - prev_psi_ref));
@@ -135,6 +189,6 @@ Ref_Att_Auto = [0; 0; psi_ref];
 TailFreq_Auto = tail_freq;
 PecCommon_Auto = pec_common;
 TailPitch_Auto = tail_pitch_cmd;
-wp_idx_out = wp_idx;
+wp_idx_out = min(wp_idx + 1, N_wp);
 
 end
