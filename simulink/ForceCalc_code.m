@@ -1,4 +1,4 @@
-function [Forces, Torques] = ForceCalc(servo_in, Vb, euler_angles, omega_b, t)
+function [Forces, Torques, body_speed] = ForceCalc(servo_in, Vb, euler_angles, omega_b, t)
 %#codegen
 %% 돌고래 헬륨 드론 힘/토크 계산
 %% MATLAB Function 블록에 이 코드를 복사-붙여넣기 하세요
@@ -145,5 +145,7 @@ T_rot_damp = -0.001 * omega_b;
 %% ========== 합산 ==========
 Forces  = F_buoy_b + F_grav_b + F_tail + [0; 0; Fz_pec] + F_drag;
 Torques = T_buoy + T_tail + [T_roll_pec; T_pitch_pec; 0] + T_dorsal + T_rot_damp;
+
+body_speed = V_mag;
 
 end
