@@ -1,4 +1,4 @@
-function [Ref_Att_Auto, TailFreq_Auto, wp_idx_out] = AutoNav(pos_uwb, euler, speed_mag, clock_t)
+function [Ref_Att_Auto, TailFreq_Auto, PecCommon_Auto, wp_idx_out] = AutoNav(pos_uwb, euler, speed_mag, clock_t)
 %#codegen
 %% AutoNav: 위치 제어기 (비홀로노믹 돌고래 드론)
 %% 입력:
@@ -10,6 +10,7 @@ function [Ref_Att_Auto, TailFreq_Auto, wp_idx_out] = AutoNav(pos_uwb, euler, spe
 %% 출력:
 %%   Ref_Att_Auto(3x1): [roll_ref, pitch_ref, psi_ref]
 %%   TailFreq_Auto(1x1): 꼬리 주파수 [Hz]
+%%   PecCommon_Auto(1x1): 가슴지느러미 공통 편향 [rad] (고도 제어)
 %%   wp_idx_out(1x1):    현재 WP 인덱스
 
 %% ========== 파라미터 ==========
@@ -33,9 +34,13 @@ Ki_u = 0.15;
 freq_min = 0.5;
 freq_max = 3.0;
 
-% Altitude
-Kp_h = 0.08;
-theta_max = 0.15;
+% Altitude (pec common direct)
+Kp_h = 0.05;           % rad/m
+pec_common_max = 0.15;  % rad
+rho_air = 1.225;
+S_pec = 0.01;
+CL_alpha = 2*pi;
+F_neg_buoy = 0.0005 * 9.81;  % 음성부력 0.0005 kg (-0.5g)
 
 %% ========== Persistent ==========
 persistent wp_idx u_integral prev_psi_ref
@@ -93,19 +98,23 @@ u_integral = max(min(u_integral, 3.0), -1.0);  % anti-windup
 tail_freq = Kp_u * u_err + Ki_u * u_integral;
 tail_freq = max(min(tail_freq, freq_max), freq_min);
 
-%% ========== 4. Altitude (P) ==========
+%% ========== 4. Altitude (pec common direct) ==========
 h_err = h_ref - height;
-theta_ref = -Kp_h * h_err;  % h 부족(양수) → theta 음수(nose up)
-theta_ref = max(min(theta_ref, theta_max), -theta_max);
+u_eff = max(u_meas, 0.65);  % 저속 floor / alt enable threshold
 
-% 저속에서 altitude 비활성
-if u_meas < 0.4
-    theta_ref = 0;
-end
+% feedforward: 음성부력 상쇄
+pec_ff = F_neg_buoy / (rho_air * u_eff^2 * S_pec * CL_alpha);
+
+% feedback
+pec_fb = Kp_h * h_err;
+
+pec_common = pec_ff + pec_fb;
+pec_common = max(min(pec_common, pec_common_max), -pec_common_max);
 
 %% ========== 출력 ==========
-Ref_Att_Auto = [0; theta_ref; psi_ref];
+Ref_Att_Auto = [0; 0; psi_ref];  % pitch_ref = 0 (고도는 pec_common으로)
 TailFreq_Auto = tail_freq;
+PecCommon_Auto = pec_common;
 wp_idx_out = wp_idx;
 
 end

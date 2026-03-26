@@ -18,7 +18,7 @@ body.V_envelope = (4/3) * pi * body.a_semi * body.b_semi^2;
 
 body.m_neutral  = (env.rho_air - env.rho_He) * body.V_envelope;
                                 % 중성부력 질량 [kg]
-body.buoyancy_margin = -0.001;  % 음성부력 마진 [kg] (약 -1 g, 약간 무거움)
+body.buoyancy_margin = -0.0005; % 음성부력 마진 [kg] (약 -0.5 g)
 body.m_total    = body.m_neutral - body.buoyancy_margin;
                                 % 총 질량 [kg] (m_neutral + 0.001)
 body.m_eff      = body.m_total - body.m_neutral;

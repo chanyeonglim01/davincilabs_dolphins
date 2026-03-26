@@ -1,4 +1,4 @@
-function [Forces, Torques, body_speed] = ForceCalc(servo_in, Vb, euler_angles, omega_b, t)
+function [Forces, Torques] = ForceCalc(servo_in, Vb, euler_angles, omega_b, t)
 %#codegen
 %% 돌고래 헬륨 드론 힘/토크 계산
 %% MATLAB Function 블록에 이 코드를 복사-붙여넣기 하세요
@@ -14,8 +14,8 @@ function [Forces, Torques, body_speed] = ForceCalc(servo_in, Vb, euler_angles, o
 %%   Forces(3x1):  기체 좌표계 합력 [Fx, Fy, Fz]
 %%   Torques(3x1): 기체 좌표계 합토크 [L, M, N]
 
-Forces = zeros(3,1);
-Torques = zeros(3,1);
+Forces = zeros(1,3);
+Torques = zeros(1,3);
 
 %% ========== 파라미터 ==========
 rho_air = 1.225;    % 공기 밀도 [kg/m³]
@@ -30,7 +30,7 @@ b_semi = body_max_diam / 2;
 V_env  = (4/3) * pi * a_semi * b_semi^2;
 
 m_neutral   = (rho_air - rho_He) * V_env;
-buoy_margin = -0.001;   % [kg], 약 -1 g 음성부력 (약간 무거움)
+buoy_margin = -0.0005;  % [kg], 약 -0.5 g 음성부력
 m_total     = m_neutral - buoy_margin;
 
 % 꼬리
@@ -143,9 +143,8 @@ end
 T_rot_damp = -0.001 * omega_b;
 
 %% ========== 합산 ==========
-Forces  = F_buoy_b + F_grav_b + F_tail + [0; 0; Fz_pec] + F_drag;
-Torques = T_buoy + T_tail + [T_roll_pec; T_pitch_pec; 0] + T_dorsal + T_rot_damp;
+Forces  = (F_buoy_b + F_grav_b + F_tail + [0; 0; Fz_pec] + F_drag).';
+Torques = (T_buoy + T_tail + [T_roll_pec; T_pitch_pec; 0] + T_dorsal + T_rot_damp).';
 
-body_speed = V_mag;
 
 end
