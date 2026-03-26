@@ -16,19 +16,19 @@ function [Ref_Att_Auto, TailFreq_Auto, PecCommon_Auto, TailPitch_Auto, wp_idx_ou
 
 %% ========== 파라미터 ==========
 WP = [ 0,  0, -1.5;
-       3,  0, -1.5;
-       3,  3, -1.5;
-       0,  3, -1.5;
+       5,  0, -1.5;
+       5,  5, -1.5;
+       0,  5, -1.5;
        0,  0, -1.5];
 N_wp = 5;
-R_switch = 0.8;      % 코너 통과 허용 반경 확대
+R_switch = 0.5;      % 코너 정밀도 향상
 
 % Guidance (LOS)
 psi_rate_max = 45 * pi/180;  % psi_ref 변화율 [rad/s] — 물고기라 빠르게 턴
 T_look = 0.6;                % lookahead time [s] — 짧을수록 경로 밀착
 L_look_min = 0.5;            % minimum lookahead [m]
 L_look_max = 1.2;            % maximum lookahead [m]
-K_ct = 2.0;                  % cross-track correction gain — 경로 복귀 강화
+K_ct = 1.5;                  % cross-track correction gain
 
 % Speed
 u_cruise = 1.0;       % 순항 약간 낮춤
