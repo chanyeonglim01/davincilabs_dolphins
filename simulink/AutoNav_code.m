@@ -14,8 +14,8 @@ WP = [ 0,  0, -1.5;
 N_wp = 5;
 
 % WP 전환
-R_switch = 1.0;          % WP 전환 반경 [m]
-R_blend = 2.5;           % 다음 WP 방향 블렌딩 시작 거리 [m]
+R_switch = 0.5;          % WP 전환: 가까이 가서 전환
+R_blend = 2.0;           % 미리 꺾기: 일찍 시작
 
 % LOS
 T_look = 0.6;
@@ -25,8 +25,8 @@ K_ct = 1.5;
 psi_rate_max = 55 * pi/180;  % 빠른 턴
 
 % Speed
-u_cruise = 1.0;
-u_corner = 0.5;       % 코너 더 감속
+u_cruise = 0.8;        % 순항 낮춤
+u_corner = 0.3;        % 코너에서 거의 멈춤
 Kp_u = 0.8;
 Ki_u = 0.15;
 freq_min = 0.5;
@@ -86,7 +86,7 @@ tgt_z = WP(wp_idx, 3);
 h_ref = -tgt_z;
 dist_to_wp = sqrt((x - tgt_x)^2 + (y - tgt_y)^2);
 
-%% ========== 2. Guidance: LOS + 미리 꺾기 ==========
+%% ========== 2. Guidance: 미리 꺾기 + WP 방향 ==========
 % 현재 WP로의 heading
 psi_to_current = atan2(tgt_y - y, tgt_x - x);
 
@@ -96,16 +96,14 @@ if wp_idx < N_wp && dist_to_wp < R_blend
     next_y = WP(wp_idx + 1, 2);
     psi_to_next = atan2(next_y - y, next_x - x);
 
-    % 블렌딩 비율: WP에 가까울수록 다음 WP 방향 비중 증가
-    % dist = R_blend → alpha = 0 (현재 WP만)
-    % dist = 0       → alpha = 0.7 (다음 WP 70%)
-    alpha = 0.7 * (1.0 - dist_to_wp / R_blend);
-    alpha = max(min(alpha, 0.7), 0.0);
+    sigma = max(min((R_blend - dist_to_wp) / R_blend, 1.0), 0.0);
+    alpha = 0.85 * (3*sigma^2 - 2*sigma^3);
 
-    % 각도 블렌딩 (wrap-safe)
-    dpsi = atan2(sin(psi_to_next - psi_to_current), cos(psi_to_next - psi_to_current));
-    psi_desired = psi_to_current + alpha * dpsi;
-    psi_desired = atan2(sin(psi_desired), cos(psi_desired));
+    t1x = cos(psi_to_current); t1y = sin(psi_to_current);
+    t2x = cos(psi_to_next);    t2y = sin(psi_to_next);
+    dx_blend = (1-alpha)*t1x + alpha*t2x;
+    dy_blend = (1-alpha)*t1y + alpha*t2y;
+    psi_desired = atan2(dy_blend, dx_blend);
 else
     psi_desired = psi_to_current;
 end
@@ -120,9 +118,10 @@ prev_psi_ref = psi_ref;
 % heading error
 psi_err = atan2(sin(psi_ref - psi), cos(psi_ref - psi));
 
-% 속도: 코너 접근 시 감속
-if dist_to_wp < R_blend && wp_idx < N_wp
-    u_ref = u_corner + (u_cruise - u_corner) * (dist_to_wp / R_blend);
+% 속도: 코너 접근 시 감속 (블렌딩 구간보다 넓게)
+R_slow = R_blend + 1.0;  % 감속 시작 = 블렌딩보다 1m 먼저
+if dist_to_wp < R_slow && wp_idx < N_wp
+    u_ref = u_corner + (u_cruise - u_corner) * (dist_to_wp / R_slow);
 else
     u_ref = u_cruise;
 end
