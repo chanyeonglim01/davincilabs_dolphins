@@ -43,10 +43,10 @@ tail_amp_max  = 0.70;
 tail_yaw_max  = 0.785;   % 45 deg
 
 % 가슴지느러미
-S_pec    = 0.03;    % 면적 3배 (Roll-to-Turn용)    % 면적 [m²]
+S_pec    = 0.08;    % 큰 가슴지느러미 (사진 기반)    % 면적 [m²]
 CL_alpha = 2*pi;    % 양력 기울기 [1/rad]
 r_pec_y  = 0.25;    % y위치 [m]
-r_pec_x  = 0.10;    % x위치 [m]
+r_pec_x  = 0.35;    % CG 앞 35cm (사진 기반)    % x위치 [m]
 pec_delta_max   = 35*pi/180;
 pec_alpha_stall = 15*pi/180;
 pec_CL_max      = 1.20;
@@ -60,6 +60,12 @@ C_damp_roll = 0.003;
 Cd    = 0.30;
 S_ref = pi * b_semi^2;   % 정면 단면적 [m²]
 
+% Hidden Prop (2.5인치, 가슴지느러미 끝)
+prop_max_thrust = 0.15;  % 최대 추력 [N] (약 15g)
+r_prop_x = 0.35;         % CG 앞 [m] (가슴지느러미 위치)
+r_prop_y = 0.30;         % CG 옆 [m]
+r_prop_z = 0.10;         % CG 아래 [m]
+
 % 부력-무게중심 오프셋
 r_CB_CG = [0; 0; -0.05]; % CB가 CG보다 5cm 위 (NED z-down)
 
@@ -70,6 +76,8 @@ tail_yaw_cmd   = 0;  % 꼬리는 위아래만 (돌고래 생체 모사)
 pec_left       = min(max(servo_in(4), -pec_delta_max), pec_delta_max);
 pec_right      = min(max(servo_in(5), -pec_delta_max), pec_delta_max);
 tail_pitch_cmd = min(max(servo_in(6), -0.25), 0.25);  % 꼬리 상하 편향 [rad]
+prop_L_cmd = max(min(servo_in(7), 1.0), 0.0);  % 좌 프로펠러 (0~1)
+prop_R_cmd = max(min(servo_in(8), 1.0), 0.0);  % 우 프로펠러 (0~1)
 
 %% ========== 상태 변수 ==========
 phi   = euler_angles(1);
@@ -134,8 +142,8 @@ T_pitch_pec = -r_pec_x * Fz_pec;
 % 지느러미 편향 시 y방향 분력 발생 → yaw moment
 % 좌 지느러미 pec_left>0(아래) → Fy_L = +양수 (좌→우 방향)
 % CG 앞(r_pec_x>0)에서 Fy → yaw moment
-Fy_pec_L = q_pec * S_pec * CL_alpha * pec_left * 0.3;  % y방향 분력 (30%)
-Fy_pec_R = -q_pec * S_pec * CL_alpha * pec_right * 0.3;  % 반대 방향
+Fy_pec_L = q_pec * S_pec * CL_alpha * pec_left * 0.5;  % y방향 분력 (30%)
+Fy_pec_R = -q_pec * S_pec * CL_alpha * pec_right * 0.5;  % 반대 방향
 T_yaw_pec = r_pec_x * (Fy_pec_L + Fy_pec_R);  % 차동 → yaw
 
 %% ========== 6. 등지느러미 수동 감쇠 ==========
@@ -153,9 +161,23 @@ end
 % 회전 감쇠
 T_rot_damp = -0.001 * omega_b;
 
+%% ========== 8. Hidden Prop 추진력 ===========
+% 좌우 프로펠러: 전방 추력 + 차동 yaw
+F_prop_L = prop_L_cmd * prop_max_thrust;
+F_prop_R = prop_R_cmd * prop_max_thrust;
+
+% 프로펠러 힘 (기체 좌표계, 전방)
+F_props = [(F_prop_L + F_prop_R); 0; 0];
+
+% 프로펠러 토크 (차동 → yaw, 위치 → pitch/roll)
+T_prop_yaw  = r_prop_y * (F_prop_R - F_prop_L);  % 차동 → yaw
+T_prop_roll = -r_prop_z * (F_prop_R - F_prop_L); % 차동 → roll (작음)
+T_prop_pitch = -r_prop_x * 0;                     % pitch는 0 (전방 추력)
+T_props = [T_prop_roll; T_prop_pitch; T_prop_yaw];
+
 %% ========== 합산 ==========
-Forces  = (F_buoy_b + F_grav_b + F_tail + [0; 0; Fz_pec] + F_drag).';
-Torques = (T_buoy + T_tail + [T_roll_pec; T_pitch_pec; T_yaw_pec] + T_dorsal + T_rot_damp).';
+Forces  = (F_buoy_b + F_grav_b + F_tail + [0; 0; Fz_pec] + F_drag + F_props).';
+Torques = (T_buoy + T_tail + [T_roll_pec; T_pitch_pec; T_yaw_pec] + T_dorsal + T_rot_damp + T_props).';
 
 
 end
