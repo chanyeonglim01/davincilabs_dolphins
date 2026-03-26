@@ -21,7 +21,7 @@ WP = [ 0,  0, -1.5;
        0,  3, -1.5;
        0,  0, -1.5];
 N_wp = 5;
-R_switch = 0.5;
+R_switch = 0.8;      % 코너 통과 허용 반경 확대
 
 % Guidance
 psi_rate_max = 15 * pi/180;  % psi_ref 변화율 제한 [rad/s]
@@ -107,6 +107,8 @@ u_integral = max(min(u_integral, 3.0), -1.0);  % anti-windup
 
 tail_freq = Kp_u * u_err + Ki_u * u_integral;
 tail_freq = max(min(tail_freq, freq_max), freq_min);
+% altitude hold floor: 고도 유지 위해 최소 추력 보장
+tail_freq = max(tail_freq, 1.1);
 
 %% ========== 4. Altitude ==========
 h_err = h_ref - height;
