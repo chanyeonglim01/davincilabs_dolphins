@@ -64,7 +64,7 @@ S_ref = pi * b_semi^2;   % 정면 단면적 [m²]
 prop_max_thrust = 0.15;  % 최대 추력 [N] (약 15g)
 r_prop_x = 0.35;         % CG 앞 [m] (가슴지느러미 위치)
 r_prop_y = 0.30;         % CG 옆 [m]
-r_prop_z = 0.10;         % CG 아래 [m]
+r_prop_z = 0.03;         % CG와 같은 높이 (roll coupling 감소)         % CG 아래 [m]
 
 % 부력-무게중심 오프셋
 r_CB_CG = [0; 0; -0.05]; % CB가 CG보다 5cm 위 (NED z-down)
