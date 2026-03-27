@@ -61,13 +61,13 @@ Cd    = 0.30;
 S_ref = pi * b_semi^2;   % 정면 단면적 [m²]
 
 % Hidden Prop (2.5인치, 가슴지느러미 끝)
-prop_max_thrust = 0.15;  % 최대 추력 [N] (약 15g)
+prop_max_thrust = 0.30;  % 2배 추력 (더 큰 모터)  % 최대 추력 [N] (약 15g)
 r_prop_x = 0.35;         % CG 앞 [m] (가슴지느러미 위치)
 r_prop_y = 0.30;         % CG 옆 [m]
-r_prop_z = 0.03;         % CG와 같은 높이 (roll coupling 감소)         % CG 아래 [m]
+r_prop_z = 0.12;         % CG 아래 12cm (Dronico처럼)         % CG 아래 [m]
 
 % 부력-무게중심 오프셋
-r_CB_CG = [0; 0; -0.05]; % CB가 CG보다 5cm 위 (NED z-down)
+r_CB_CG = [0; 0; -0.03];  % CB-CG 3cm % CB가 CG보다 5cm 위 (NED z-down)
 
 %% ========== 서보 입력 분리 ==========
 tail_freq      = min(max(servo_in(1), tail_freq_min), tail_freq_max);
@@ -166,11 +166,15 @@ T_rot_damp = -0.001 * omega_b;
 F_prop_L = prop_L_cmd * prop_max_thrust;
 F_prop_R = prop_R_cmd * prop_max_thrust;
 
-% 프로펠러 힘 (기체 좌표계, 전방)
-F_props = [(F_prop_L + F_prop_R); 0; 0];
+% 프로펠러 힘 (기체 좌표계, cant=15도 내향)
+cant = 15 * pi/180;  % 15도 내향
+Fx_props = (F_prop_L + F_prop_R) * cos(cant);
+Fy_props = (F_prop_L - F_prop_R) * sin(cant);  % 차동→횡방향
+F_props = [Fx_props; Fy_props; 0];
 
 % 프로펠러 토크 (차동 → yaw, 위치 → pitch/roll)
-T_prop_yaw  = r_prop_y * (F_prop_R - F_prop_L);  % 차동 → yaw
+T_prop_yaw  = r_prop_y * (F_prop_R - F_prop_L) * cos(cant)
+            + r_prop_x * (F_prop_L - F_prop_R) * sin(cant);  % cant Fy contribution  % 차동 → yaw
 T_prop_roll = -r_prop_z * (F_prop_R - F_prop_L); % 차동 → roll (작음)
 T_prop_pitch = -r_prop_x * 0;                     % pitch는 0 (전방 추력)
 T_props = [T_prop_roll; T_prop_pitch; T_prop_yaw];
